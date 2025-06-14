@@ -16,7 +16,7 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Load embeddings
 with open("corpus/all_embeddings.json", "r", encoding="utf-8") as f:
-    db = json.load(f)
+    db = json.load(f)[:300]
 
 for item in db:
     if "embedding" in item:
