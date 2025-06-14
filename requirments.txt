@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+openai
+langchain
+chromadb
+python-multipart
+requests
+pillow
+pytesseract
