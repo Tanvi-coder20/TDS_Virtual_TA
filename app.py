@@ -7,79 +7,79 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Load model once
+# Load model
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Load and slice corpus
+# Load embeddings (safely)
 try:
     with open("corpus/all_embeddings.json", "r", encoding="utf-8") as f:
-        db = json.load(f)[:300]  # Limit size for Hugging Face RAM
+        db = json.load(f)[:300]
         for item in db:
             item["embedding"] = np.array(item["embedding"], dtype=np.float32)
-except FileNotFoundError:
+    print("✅ Embeddings loaded successfully")
+except Exception as e:
+    print("❌ Failed to load embeddings:", e)
     db = []
-    print("❗ Warning: embeddings file not found. App will not work until 'corpus/all_embeddings.json' is uploaded.")
 
-# Semantic search
+# Semantic retrieval
 def get_top_matches(question, db, top_k=3):
-    query_vec = model.encode(question.strip().lower())
-    doc_vecs = [item["embedding"] for item in db]
-    sims = cosine_similarity([query_vec], doc_vecs)[0]
+    q_vec = model.encode(question.strip().lower())
+    doc_vectors = [item["embedding"] for item in db]
+    sims = cosine_similarity([q_vec], doc_vectors)[0]
     top_indices = np.argsort(sims)[::-1][:top_k]
     return [
         {
             "text": db[i]["text"],
             "url": db[i]["url"],
             "score": float(sims[i]),
-            "source": db[i].get("source", "unknown"),
+            "source": db[i].get("source", "unknown")
         }
         for i in top_indices
     ]
 
-# Keyword fallback
+# Fallback logic with fixed sorting
 def fallback_keyword_search(question, db):
-    keywords = re.findall(r"\b\w+\b", question.lower())
+    keywords = re.findall(r'\b\w+\b', question.lower())
     matches = []
     for item in db:
-        score = sum(1 for w in keywords if w in item["text"].lower())
+        score = sum(1 for word in keywords if word in item["text"].lower())
         if score > 0:
-            quality = len(item["text"].split())
-            matches.append((score + 0.01 * quality, item))
-    matches.sort(reverse=True)
+            matches.append((score + 0.01 * len(item["text"].split()), item))
+    matches.sort(key=lambda x: x[0], reverse=True)
     return matches[:2]
 
-# Extract most relevant lines
-def extract_relevant_lines(text, query, n=3):
-    query_keywords = set(re.findall(r"\b\w+\b", query.lower()))
+# Relevance extractor
+def extract_relevant_lines(text, query, num_lines=3):
+    query_keywords = set(re.findall(r'\b\w+\b', query.lower()))
     lines = re.split(r"[.\n]", text)
     scored = []
     for line in lines:
-        if not line.strip(): continue
-        words = set(re.findall(r"\b\w+\b", line.lower()))
+        words = set(re.findall(r'\b\w+\b', line.lower()))
         score = len(words & query_keywords)
         if score > 0:
             scored.append((score, line.strip()))
     scored.sort(reverse=True)
-    top = [line for _, line in scored[:n]]
-    return "\n".join(top) if top else text[:300]
+    return "\n".join([line for _, line in scored[:num_lines]]) or text.strip()[:300]
 
-# Main QA logic
+# Main answering function
 def answer_question(text, image):
     try:
         if not db:
-            return "❗ Error: No embeddings loaded. Please upload the required JSON file.", ""
+            return "❗ Error: Embedding database not loaded.", ""
 
+        # OCR
         if image:
             extracted = pytesseract.image_to_string(image).strip()
             question = extracted if extracted else text
         else:
-            question = text.strip()
+            question = text
 
+        question = question.strip()
         if not question:
-            return "❗ Please enter a valid question or upload an image.", ""
+            return "❗ Please enter a question or upload an image.", ""
 
+        # Semantic results
         results = get_top_matches(question, db)
-
         if not results or results[0]["score"] < 0.45:
             fallback = fallback_keyword_search(question, db)
             if fallback:
@@ -92,7 +92,6 @@ def answer_question(text, image):
         top = results[0]
         answer = extract_relevant_lines(top["text"], question)
 
-        # Format links (avoid \n issues)
         link_lines = []
         for i, res in enumerate(results):
             snippet = res["text"][:80].replace("\n", " ")
@@ -106,19 +105,19 @@ def answer_question(text, image):
         print("❌ Internal error:", e)
         return f"An error occurred: {str(e)}", ""
 
-# Gradio UI
+# UI
 iface = gr.Interface(
     fn=answer_question,
     inputs=[
-        gr.Textbox(label="Ask your question 👇 (or leave blank if using image)"),
-        gr.Image(type="pil", label="Upload a screenshot of your question"),
+        gr.Textbox(label="Ask a question 👇"),
+        gr.Image(type="pil", label="Or upload a screenshot of your question")
     ],
     outputs=[
         gr.Markdown(label="🧠 Answer"),
-        gr.Markdown(label="🔗 Relevant Links"),
+        gr.Markdown(label="🔗 Relevant Links")
     ],
     title="TDS Virtual Teaching Assistant 🤖",
-    description="Ask anything from the TDS Jan–Apr 2025 course using text or image. Powered by semantic search, fallback, and OCR.",
+    description="Ask about TDS Jan–Apr 2025 content using semantic search. Supports screenshots and text!",
 )
 
 iface.launch()
