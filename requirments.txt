@@ -7,3 +7,7 @@ python-multipart
 requests
 pillow
 pytesseract
+gradio
+numpy
+sentence-transformers
+scikit-learn
